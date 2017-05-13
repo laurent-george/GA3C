@@ -39,6 +39,7 @@ class NetworkVP:
         self.device = device
         self.model_name = model_name
         self.num_actions = num_actions
+        self.num_skips = 5
 
         self.img_width = Config.IMAGE_WIDTH
         self.img_height = Config.IMAGE_HEIGHT
@@ -83,6 +84,7 @@ class NetworkVP:
         self.n1 = self.conv2d_layer(self.x, 8, 16, 'conv11', strides=[1, 4, 4, 1])
         self.n2 = self.conv2d_layer(self.n1, 4, 32, 'conv12', strides=[1, 2, 2, 1])
         self.action_index = tf.placeholder(tf.float32, [None, self.num_actions])
+        self.skip_index = tf.placeholder(tf.float32, [None, self.num_skips]) #power of skip 2^0, 2^1, 2^2 ...
         _input = self.n2
 
         flatten_input_shape = _input.get_shape()
@@ -91,7 +93,7 @@ class NetworkVP:
         self.flat = tf.reshape(_input, shape=[-1, nb_elements._value])
         self.d1 = self.dense_layer(self.flat, 256, 'dense1')
 
-	#LSTM Layer 
+	    #LSTM Layer 
         if Config.USE_RNN:     
             D = Config.NCELLS
             self.lstm = rnn.BasicLSTMCell(D, state_is_tuple=True)
@@ -119,6 +121,7 @@ class NetworkVP:
         self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v), axis=0)
 
         self.logits_p = self.dense_layer(self.d1, self.num_actions, 'logits_p', func=None)
+        self.logits_s = self.dense_layer(self.d1, self.num_skips, 'logits_s', func=None)
         if Config.USE_LOG_SOFTMAX:
             self.softmax_p = tf.nn.softmax(self.logits_p)
             self.log_softmax_p = tf.nn.log_softmax(self.logits_p)
@@ -127,6 +130,19 @@ class NetworkVP:
             self.cost_p_1 = self.log_selected_action_prob * (self.y_r - tf.stop_gradient(self.logits_v))
             self.cost_p_2 = -1 * self.var_beta * \
                         tf.reduce_sum(self.log_softmax_p * self.softmax_p, axis=1)
+
+
+            #frame skipping
+            self.softmax_s = tf.nn.softmax(self.logits_s)
+            self.log_softmax_s = tf.nn.log_softmax(self.logits_s)
+            self.log_selected_skip_prob = tf.reduce_sum(self.log_softmax_s * self.skip_index, axis=1)
+
+            self.cost_p_1 += self.log_selected_skip_prob * (self.y_r - tf.stop_gradient(self.logits_v))
+            self.cost_p_2 += -1 * self.var_beta * \
+                         tf.reduce_sum(self.log_softmax_s * self.softmax_s, axis=1)
+                        
+            self.cost_p_1 /= 2
+            self.cost_p_2 /= 2                
         else:
             self.softmax_p = (tf.nn.softmax(self.logits_p) + Config.MIN_POLICY) / (1.0 + Config.MIN_POLICY * self.num_actions)
             self.selected_action_prob = tf.reduce_sum(self.softmax_p * self.action_index, axis=1)
@@ -136,6 +152,19 @@ class NetworkVP:
             self.cost_p_2 = -1 * self.var_beta * \
                         tf.reduce_sum(tf.log(tf.maximum(self.softmax_p, self.log_epsilon)) *
                                       self.softmax_p, axis=1)
+
+            #frame skipping
+            self.softmax_s = (tf.nn.softmax(self.logits_s) + Config.MIN_POLICY) / (1.0 + Config.MIN_POLICY * self.num_skips)
+            self.selected_skip_prob = tf.reduce_sum(self.softmax_s * self.skip_index, axis=1)
+
+            self.cost_p_1 += tf.log(tf.maximum(self.selected_skip_prob, self.log_epsilon)) \
+                        * (self.y_r - tf.stop_gradient(self.logits_v))
+            self.cost_p_2 += -1 * self.var_beta * \
+                        tf.reduce_sum(tf.log(tf.maximum(self.softmax_s, self.log_epsilon)) *
+                                      self.softmax_s, axis=1)
+            self.cost_p_1 /= 2
+            self.cost_p_2 /= 2              
+
         if Config.USE_RNN:
             mask = tf.reduce_max(self.action_index,axis=1)
             self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v) * mask, axis=0)
@@ -267,33 +296,33 @@ class NetworkVP:
         feed_dict = self.__get_base_feed_dict()
         if Config.USE_RNN == False:     
             feed_dict.update({self.x: x, self.is_training: False})
-            p, v = self.sess.run([self.softmax_p, self.logits_v], feed_dict=feed_dict)
-            return p, v, c, h
+            p, s, v = self.sess.run([self.softmax_p, self.softmax_s, self.logits_v], feed_dict=feed_dict)
+            return p, s, v, c, h
         else:
             step_sizes = np.ones((c.shape[0],),dtype=np.int32)       
             feed_dict = self.__get_base_feed_dict()
             feed_dict.update({self.x: x, self.step_sizes:step_sizes, self.c0:c, self.h0:h, self.batch_size:step_sizes.shape[0], self.is_training: False})        
-            p, v, rnn_state = self.sess.run([self.softmax_p, self.logits_v, self.lstm_state], feed_dict=feed_dict)       
-            return p, v, rnn_state.c, rnn_state.h
+            p, s, v, rnn_state = self.sess.run([self.softmax_p, self.softmax_s, self.logits_v, self.lstm_state], feed_dict=feed_dict)       
+            return p, s, v, rnn_state.c, rnn_state.h
     
-    def train(self, x, y_r, a, c, h, l):
+    def train(self, x, y_r, a, s, c, h, l):
         # TODO : define a new OP which dynamically pad tensor
         # https://www.tensorflow.org/extend/adding_an_op
         r = np.reshape(y_r,(y_r.shape[0],))
         feed_dict = self.__get_base_feed_dict()
-        
         if Config.USE_RNN == False:        
-            feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.is_training: True})
+            feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.skip_index: s, self.is_training: True})
         else:
             step_sizes = np.array(l)
-            feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.step_sizes:step_sizes, self.c0:c, self.h0:h, self.batch_size:len(l), self.is_training: True})
+            feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.skip_index: s, self.step_sizes:step_sizes, self.c0:c, self.h0:h, self.batch_size:len(l), self.is_training: True})
         self.sess.run(self.train_op, feed_dict=feed_dict)
 
-    def log(self, x, y_r, a):
+
+    def log(self, x, y_r, a, s):
         feed_dict = self.__get_base_feed_dict()
-        feed_dict.update({self.x: x, self.y_r: y_r, self.action_index: a})
-        step, summary = self.sess.run([self.global_step, self.summary_op], feed_dict=feed_dict)
-        self.log_writer.add_summary(summary, step)
+        feed_dict.update({self.x: x, self.y_r: y_r, self.action_index: a, self.skip_index: a})
+        #step, summary = self.sess.run([self.global_step, self.summary_op], feed_dict=feed_dict)
+        #self.log_writer.add_summary(summary, step)
 
     def _checkpoint_filename(self, episode):
         return 'checkpoints/%s_%08d' % (self.model_name, episode)

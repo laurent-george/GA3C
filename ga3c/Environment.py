@@ -82,8 +82,19 @@ class Environment:
         self._update_frame_q(self.game.reset())
         self.previous_state = self.current_state = None
 
-    def step(self, action):
-        observation, reward, done, _ = self.game.step(action)
+    def step(self, action, skip=0):
+        if skip > 0:
+            frames = 2**skip
+            reward = 0
+            if frames > 1 and Config.PLAY_MODE:
+                print('SKIP', frames)
+            for i in range(frames):
+                observation, reward_, done, _ = self.game.step(action)
+                reward += reward_
+                if done:
+                    break
+        else:
+            observation, reward, done, _ = self.game.step(action)
 
         self.total_reward += reward
         self._update_frame_q(observation)
