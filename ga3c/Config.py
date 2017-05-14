@@ -30,14 +30,14 @@ class Config:
     # Game configuration
 
     # Name of the game, with version (e.g. PongDeterministic-v0)
-    ATARI_GAME = 'CartPole-v0'
+    ATARI_GAME = 'SpaceInvaders-v0'
 
-    # Enable to see the trained agent in action
-    PLAY_MODE = True
     # Enable to train
-    TRAIN_MODELS = False
+    TRAIN_MODELS = 0
+    # Enable to see the trained agent in action
+    PLAY_MODE = 1
     # Load old models. Throws if the model doesn't exist
-    LOAD_CHECKPOINT = True
+    LOAD_CHECKPOINT = 1
     # If 0, the latest checkpoint is loaded
     LOAD_EPISODE = 0 
 
@@ -53,7 +53,7 @@ class Config:
     TRAINERS = 2
 
     # Device
-    DEVICE = 'cpu:0'
+    DEVICE = 'gpu:0'
 
     # Enable the dynamic adjustment (+ waiting time to start it)
     DYNAMIC_SETTINGS = True
@@ -78,9 +78,9 @@ class Config:
     PREDICTION_BATCH_SIZE = 128
 
     # Input of the DNN
-    STACKED_FRAMES = 4
-    IMAGE_WIDTH = 1
-    IMAGE_HEIGHT = 4
+    STACKED_FRAMES = 2
+    IMAGE_WIDTH = 84
+    IMAGE_HEIGHT = 84
 
     # Total number of episodes and annealing frequency
     EPISODES = 400000
@@ -88,7 +88,7 @@ class Config:
 
     # Entropy regualrization hyper-parameter
     BETA_START = 0.01
-    BETA_END = 0.01
+    BETA_END = 0.001
 
     # Learning rate
     LEARNING_RATE_START = 0.0003
@@ -112,10 +112,10 @@ class Config:
     
     # USE RNN - can help to converge but current version is much slower than FF
     USE_RNN = True
-    NCELLS = 256
+    NCELLS = 512
 
     # DYNAMIC FRAME SKIPS
-    MAX_SKIPS = 5
+    MAX_SKIPS = 6
     #########################################################################
     # Log and save
 

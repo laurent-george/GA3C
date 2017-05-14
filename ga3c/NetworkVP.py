@@ -39,7 +39,7 @@ class NetworkVP:
         self.device = device
         self.model_name = model_name
         self.num_actions = num_actions
-        self.num_skips = 5
+        self.num_skips = Config.MAX_SKIPS
 
         self.img_width = Config.IMAGE_WIDTH
         self.img_height = Config.IMAGE_HEIGHT
@@ -91,7 +91,7 @@ class NetworkVP:
         nb_elements = flatten_input_shape[1] * flatten_input_shape[2] * flatten_input_shape[3]
 
         self.flat = tf.reshape(_input, shape=[-1, nb_elements._value])
-        self.d1 = self.dense_layer(self.flat, 256, 'dense1')
+        self.d1 = self.dense_layer(self.flat, Config.NCELLS, 'dense1')
 
 	    #LSTM Layer 
         if Config.USE_RNN:     
@@ -121,7 +121,9 @@ class NetworkVP:
         self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v), axis=0)
 
         self.logits_p = self.dense_layer(self.d1, self.num_actions, 'logits_p', func=None)
-        self.logits_s = self.dense_layer(self.d1, self.num_skips, 'logits_s', func=None)
+
+        
+        self.logits_s = self.dense_layer(self.logits_p, self.num_skips, 'logits_s', func=None)
         if Config.USE_LOG_SOFTMAX:
             self.softmax_p = tf.nn.softmax(self.logits_p)
             self.log_softmax_p = tf.nn.log_softmax(self.logits_p)

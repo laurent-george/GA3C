@@ -21,7 +21,7 @@ for i in range(len(tableau20)):
     r, g, b = tableau20[i]  
     tableau20[i] = (r / 255., g / 255., b / 255.)  
     
-MAX_EPISODES = 6000
+MAX_EPISODES = 60000000
 
 def prepare_time_axis(hour):
     time = []
@@ -77,6 +77,8 @@ def main():
         name = re.split( 'results_' , os.path.splitext(file)[0])[1]
         print(name)
         addplot(file, axarr, tableau20[i%20],name)
+    
+    addplot('results.txt', axarr, tableau20[15], 'current')
     
 
 

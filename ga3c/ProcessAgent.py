@@ -117,7 +117,6 @@ class ProcessAgent(Process):
             prediction, skip_probs, value, rnn['c'][0], rnn['h'][0] = self.predict(state)
                                   
             action = self.select_action(prediction)
-
             #select skip 
             if Config.PLAY_MODE:
                 skip = np.argmax(skip_probs)
