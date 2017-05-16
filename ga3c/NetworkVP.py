@@ -114,7 +114,7 @@ class NetworkVP:
                                                         sequence_length = self.step_sizes,
                                                         time_major = False) 
                                                         #scope=scope)                                 
-            self._state = tf.reshape(lstm_outputs, [-1,D])  + self.d1  #just in case, avoid vanishing gradient
+            self._state = tf.reshape(lstm_outputs, [-1,D])
             
         else:
             self._state = self.d1

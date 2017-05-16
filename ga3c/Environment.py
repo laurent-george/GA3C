@@ -77,9 +77,7 @@ class Environment:
     def _update_frame_q(self, frame):
         if self.frame_q.full():
             self.frame_q.get()
-        image = Environment.preprocess_karpathy_pong(frame)
-        
-        #image = Environment._preprocess(frame)
+        image = Environment._preprocess(frame)
         #image = frame[:,np.newaxis].astype(np.float32)
         self.frame_q.put(image)
 

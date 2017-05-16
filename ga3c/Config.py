@@ -81,9 +81,9 @@ class Config:
     PREDICTION_BATCH_SIZE = 128
 
     # Input of the DNN
-    STACKED_FRAMES = 2
-    IMAGE_WIDTH = 80
-    IMAGE_HEIGHT = 80
+    STACKED_FRAMES = 1
+    IMAGE_WIDTH = 84
+    IMAGE_HEIGHT = 84
 
     # Total number of episodes and annealing frequency
     EPISODES = 400000
