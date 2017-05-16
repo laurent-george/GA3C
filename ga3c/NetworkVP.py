@@ -66,28 +66,16 @@ class NetworkVP:
                     vars = tf.global_variables()
                     self.saver = tf.train.Saver({var.name: var for var in vars}, max_to_keep=0)
 
-    def ff_fc(self, _input, is_training=False):
-        flatten_input_shape = _input.get_shape()
-        nb_elements = flatten_input_shape[1] * flatten_input_shape[2] * flatten_input_shape[3]
-
-        flat = tf.reshape(_input, shape=[-1, nb_elements._value])
-        d0 = self.dense_layer(flat, 256, 'dense0')
-        #d0 = self.batch_norm_layer(d0, is_training, scope_bn='target_batch_norm_0', activation=tf.nn.relu)
-        d1 = self.dense_layer(d0, 256, 'dense1')
-        return d1
     
     def ff_cnn(self, _input, is_training=False):
-        n1 = self.conv2d_layer(_input, 8, 32, 'conv11', strides=[1, 4, 4, 1])
-        n2 = self.conv2d_layer(n1, 4, 64, 'conv12', strides=[1, 2, 2, 1]) 
+        n1 = self.conv2d_layer(_input, 8, 32, 'conv11', strides=[1, 4, 4, 1])#, is_training=is_training)    
+        n2 = self.conv2d_layer(n1, 4, 64, 'conv12', strides=[1, 2, 2, 1])#, is_training=is_training) 
         
         flatten_input_shape = n2.get_shape()
         nb_elements = flatten_input_shape[1] * flatten_input_shape[2] * flatten_input_shape[3]
         flat = tf.reshape(n2, shape=[-1, nb_elements._value])
-        d0 = self.dense_layer(flat, 256, 'dense0')
+        d0 = self.dense_layer(flat, 256, 'dense0')#, is_training=is_training)
         return d0
-    
-    def switch_compute(self,_input,do_compute):
-        return Exception('blah')
               
 
     def _create_graph(self):
@@ -126,17 +114,16 @@ class NetworkVP:
                                                         sequence_length = self.step_sizes,
                                                         time_major = False) 
                                                         #scope=scope)                                 
-            self._state = tf.reshape(lstm_outputs, [-1,D])   + self.d1  #just in case, avoid vanishing gradient
-         
+            self._state = tf.reshape(lstm_outputs, [-1,D])  + self.d1  #just in case, avoid vanishing gradient
+            
         else:
             self._state = self.d1
             
-        self._state = tf.nn.dropout(self._state, 0.5) #is effective!
+        #self._state = tf.nn.dropout(self._state, 0.5) #is effective!
 
-        self.logits_v = tf.squeeze(self.dense_layer(self._state, 1, 'logits_v', func=None), squeeze_dims=[1])
-        self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v), reduction_indices=0)
-
+        self.logits_v = tf.squeeze(self.dense_layer(self._state, 1, 'logits_v', func=None), squeeze_dims=[1])        
         self.logits_p = self.dense_layer(self._state, self.num_actions, 'logits_p')
+
         if Config.USE_LOG_SOFTMAX:
             self.softmax_p = tf.nn.softmax(self.logits_p)
             self.log_softmax_p = tf.nn.log_softmax(self.logits_p)
@@ -155,8 +142,16 @@ class NetworkVP:
                         tf.reduce_sum(tf.log(tf.maximum(self.softmax_p, self.log_epsilon)) *
                                       self.softmax_p, reduction_indices=1)
         
-        self.cost_p_1_agg = tf.reduce_sum(self.cost_p_1, reduction_indices=0)
-        self.cost_p_2_agg = tf.reduce_sum(self.cost_p_2, reduction_indices=0)
+        if Config.USE_RNN:
+            mask = tf.reduce_max(self.action_index,axis=1)
+            self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v) * mask, reduction_indices=0)
+            self.cost_p_1_agg = tf.reduce_sum(self.cost_p_1 * mask, reduction_indices=0)
+            self.cost_p_2_agg = tf.reduce_sum(self.cost_p_2 * mask, reduction_indices=0)
+        else:
+            self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v), reduction_indices=0)
+            self.cost_p_1_agg = tf.reduce_sum(self.cost_p_1, reduction_indices=0)
+            self.cost_p_2_agg = tf.reduce_sum(self.cost_p_2, reduction_indices=0)
+            
         self.cost_p = -(self.cost_p_1_agg + self.cost_p_2_agg)
         
         if Config.DUAL_RMSPROP:
@@ -229,6 +224,16 @@ class NetworkVP:
         self.summary_op = tf.summary.merge(summaries)
         self.log_writer = tf.summary.FileWriter("logs/%s" % self.model_name, self.sess.graph)
 
+    def dense_bn_layer(self, input, out_dim, name, func=tf.nn.relu, is_training=False):
+        n1 = self.dense_layer(input, out_dim, name, func=None)
+        n2 = self.batch_norm_layer(n1,is_training, scope_bn=name+'_bn',activation=func)
+        return n2
+        
+    def conv2d_bn_layer(self, input,filter_size, out_dim, name, strides, func=tf.nn.relu, is_training=False):
+        n1 = self.conv2d_layer(input,filter_size,out_dim, name, strides, func=None)
+        n2 = self.batch_norm_layer(n1,is_training,scope_bn=name+'_bn',activation=func)
+        return n2   
+        
     def dense_layer(self, input, out_dim, name, func=tf.nn.relu):
         in_dim = input.get_shape().as_list()[-1]
         d = 1.0 / np.sqrt(in_dim)
@@ -343,3 +348,8 @@ class NetworkVP:
 
     def get_variable_value(self, name):
         return self.sess.run(self.graph.get_tensor_by_name(name))
+        
+        
+        
+    #pixel control, was stolen from myosuda "unreal" implementatino
+    #https://github.com/miyosuda/unreal/blob/master/model/model.py
