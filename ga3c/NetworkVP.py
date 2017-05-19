@@ -79,24 +79,23 @@ class NetworkVP:
         self.global_step = tf.Variable(0, trainable=False, name='step')
         
         self.is_training = tf.placeholder(tf.bool)
-
-        # As implemented in A3C paper
-        self.n1 = self.conv2d_layer(self.x, 8, 16, 'conv11', strides=[1, 4, 4, 1])
-        self.n2 = self.conv2d_layer(self.n1, 4, 32, 'conv12', strides=[1, 2, 2, 1])
+   
         self.action_index = tf.placeholder(tf.float32, [None, self.num_actions])
-        self.skip_index = tf.placeholder(tf.float32, [None, self.num_skips]) #power of skip 2^0, 2^1, 2^2 ...
-        _input = self.n2
 
-        flatten_input_shape = _input.get_shape()
-        nb_elements = flatten_input_shape[1] * flatten_input_shape[2] * flatten_input_shape[3]
+        self.skip_index = tf.placeholder(tf.float32, [None, self.num_skips]) #power of skip 2^0, 2^1, 2^2 ...   
+        
+        # As implemented in A3C paper 
+        #self.n1 = self.conv2d_layer(self.x, 8, 16, 'conv11', strides=[1, 4, 4, 1])
+        #self.n2 = self.conv2d_layer(self.n1, 4, 32, 'conv12', strides=[1, 2, 2, 1])      
+        #self.d1 = self.dense_layer(self.n2, 256, 'dense1',func=tf.nn.elu)
+        
+        self.d1 = self.jchoi_cnn(self.x)
 
-        self.flat = tf.reshape(_input, shape=[-1, nb_elements._value])
-        self.d1 = self.dense_layer(self.flat, Config.NCELLS, 'dense1')
 
 	    #LSTM Layer 
         if Config.USE_RNN:     
             D = Config.NCELLS
-            self.lstm = rnn.BasicLSTMCell(D, state_is_tuple=True)
+            self.lstm = rnn.LSTMCell(D, state_is_tuple=True) #or Basic
             self.step_sizes = tf.placeholder(tf.int32, [None], name='stepsize') 
             #self.batch_size = tf.shape(self.step_sizes)[0]    
             self.batch_size = tf.placeholder(tf.int32, name='batchsize')
@@ -112,17 +111,15 @@ class NetworkVP:
                                                         sequence_length = self.step_sizes,
                                                         time_major = False) 
                                                         #scope=scope)                                 
-            self._state = tf.reshape(lstm_outputs, [-1,D])  + self.d1  #just in case, avoid vanishing gradient
+            self._state = tf.reshape(lstm_outputs, [-1,D]) + self.d1 #just in case, avoid vanishing gradient
             
         else:
             self._state = self.d1
 
-        self.logits_v = tf.squeeze(self.dense_layer(self.d1, 1, 'logits_v', func=None), axis=[1])
+        self.logits_v = tf.squeeze(self.dense_layer(self._state, 1, 'logits_v', func=None), axis=[1])
         self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v), axis=0)
 
-        self.logits_p = self.dense_layer(self.d1, self.num_actions, 'logits_p', func=None)
-
-        
+        self.logits_p = self.dense_layer(self._state, self.num_actions, 'logits_p', func=None)
         self.logits_s = self.dense_layer(self.logits_p, self.num_skips, 'logits_s', func=None)
         if Config.USE_LOG_SOFTMAX:
             self.softmax_p = tf.nn.softmax(self.logits_p)
@@ -243,6 +240,12 @@ class NetworkVP:
         self.log_writer = tf.summary.FileWriter("logs/%s" % self.model_name, self.sess.graph)
 
     def dense_layer(self, input, out_dim, name, func=tf.nn.relu):
+        #flatten
+        if len(input.get_shape().as_list()) > 2:
+            flatten_input_shape = input.get_shape()
+            nb_elements = flatten_input_shape[1] * flatten_input_shape[2] * flatten_input_shape[3]
+            input = tf.reshape(input, shape=[-1, nb_elements._value])
+            
         in_dim = input.get_shape().as_list()[-1]
         d = 1.0 / np.sqrt(in_dim)
         with tf.variable_scope(name):
@@ -275,6 +278,14 @@ class NetworkVP:
 
         return output
 
+    def jchoi_cnn(self, _input):    
+       self.n1 = self.conv2d_layer(_input, 3, 32, 'conv1', strides=[1, 2, 2, 1],func=tf.nn.elu)
+       self.n2 = self.conv2d_layer(self.n1, 3, 32, 'conv2', strides=[1, 2, 2, 1],func=tf.nn.elu)
+       self.n3 = self.conv2d_layer(self.n2, 3, 32, 'conv3', strides=[1, 2, 2, 1],func=tf.nn.elu)
+       self.n4 = self.conv2d_layer(self.n3, 3, 32, 'conv4', strides=[1, 2, 2, 1],func=tf.nn.elu)
+       self.d1 = self.dense_layer(self.n4, 256, 'dense0')     
+       return self.d1	
+    
     def __get_base_feed_dict(self):
         return {self.var_beta: self.beta, self.var_learning_rate: self.learning_rate, self.is_training: Config.TRAIN_MODELS}
 
