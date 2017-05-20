@@ -86,6 +86,10 @@ class NetworkVP:
         #self.n2 = self.conv2d_layer(self.n1, 4, 32, 'conv12', strides=[1, 2, 2, 1])      
         #self.d1 = self.dense_layer(self.n2, 256, 'dense1',func=tf.nn.elu)
         
+        #for cartpole tests
+        #self.d1 = self.dense_layer(self.x, 256, 'dense1',func=tf.nn.relu)
+
+        #for fast convergence on atari
         self.d1 = self.jchoi_cnn(self.x)
 
 	#LSTM Layer 
@@ -113,8 +117,6 @@ class NetworkVP:
             self._state = self.d1
 
         self.logits_v = tf.squeeze(self.dense_layer(self._state, 1, 'logits_v', func=None), axis=[1])
-        self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v), axis=0)
-
         self.logits_p = self.dense_layer(self._state, self.num_actions, 'logits_p', func=None)
         if Config.USE_LOG_SOFTMAX:
             self.softmax_p = tf.nn.softmax(self.logits_p)
@@ -133,15 +135,16 @@ class NetworkVP:
             self.cost_p_2 = -1 * self.var_beta * \
                         tf.reduce_sum(tf.log(tf.maximum(self.softmax_p, self.log_epsilon)) *
                                       self.softmax_p, axis=1)
-        if Config.USE_RNN:
-            mask = tf.reduce_max(self.action_index,axis=1)
-            self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v) * mask, axis=0)
-            self.cost_p_1_agg = tf.reduce_sum(self.cost_p_1 * mask, axis=0)
-            self.cost_p_2_agg = tf.reduce_sum(self.cost_p_2 * mask, axis=0)
-        else:
-            self.cost_p_1_agg = tf.reduce_sum(self.cost_p_1, axis=0)
-            self.cost_p_2_agg = tf.reduce_sum(self.cost_p_2, axis=0)
+        
+        mask = tf.reduce_max(self.action_index,axis=1)
+        self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v) * mask, axis=0)
+        self.cost_p_1_agg = tf.reduce_sum(self.cost_p_1 * mask, axis=0)
+        self.cost_p_2_agg = tf.reduce_sum(self.cost_p_2 * mask, axis=0)
         self.cost_p = -(self.cost_p_1_agg + self.cost_p_2_agg)
+
+
+        weight_decay_factor = 1e-5
+        self.weight_decay = weight_decay_factor * tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
         
         if Config.DUAL_RMSPROP:
             self.opt_p = tf.train.RMSPropOptimizer(
@@ -156,7 +159,7 @@ class NetworkVP:
                 momentum=Config.RMSPROP_MOMENTUM,
                 epsilon=Config.RMSPROP_EPSILON)
         else:
-            self.cost_all = self.cost_p + self.cost_v
+            self.cost_all = self.cost_p + self.cost_v + self.weight_decay
             self.opt = tf.train.RMSPropOptimizer(
                 learning_rate=self.var_learning_rate,
                 decay=Config.RMSPROP_DECAY,
