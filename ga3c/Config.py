@@ -30,8 +30,7 @@ import gym
 gym.envs.register(
     id='SpaceInvaders-v100',
     entry_point='gym.envs.atari:AtariEnv',
-    reward_threshold=21.0,
-    kwargs={'game':'pong', 'obs_type':  'image', 'frameskip':4, 'repeat_action_probability': 0.25},
+    kwargs={'game':'space_invaders', 'obs_type':  'image'},
     nondeterministic=False
 )
 
@@ -44,11 +43,11 @@ class Config:
     ATARI_GAME = 'SpaceInvaders-v100'
 
     # Enable to train
-    TRAIN_MODELS = 0
+    TRAIN_MODELS = 1
     # Enable to see the trained agent in action
-    PLAY_MODE = 1
+    PLAY_MODE = 0
     # Load old models. Throws if the model doesn't exist
-    LOAD_CHECKPOINT = 1
+    LOAD_CHECKPOINT = 0
     # If 0, the latest checkpoint is loaded
     LOAD_EPISODE = 0 
 
@@ -85,7 +84,7 @@ class Config:
     REWARD_MAX = 1
 
     # Max size of the queue
-    MAX_QUEUE_SIZE = 20
+    MAX_QUEUE_SIZE = 60
     PREDICTION_BATCH_SIZE = 128
 
     # Input of the DNN
@@ -94,16 +93,16 @@ class Config:
     IMAGE_HEIGHT = 84
 
     # Total number of episodes and annealing frequency
-    EPISODES = 4000
-    ANNEALING_EPISODE_COUNT = 4000
+    EPISODES = 40000
+    ANNEALING_EPISODE_COUNT = 40000
 
     # Entropy regualrization hyper-parameter
     BETA_START = 0.01
     BETA_END = 0.001
 
     # Learning rate
-    LEARNING_RATE_START = 0.0003
-    LEARNING_RATE_END = 0.0003
+    LEARNING_RATE_START = 0.001
+    LEARNING_RATE_END = 0.0001
 
     # RMSProp parameters
     RMSPROP_DECAY = 0.99
@@ -123,7 +122,7 @@ class Config:
 
     # USE RNN - can help to converge but current version is much slower than FF
     USE_RNN = True
-    NCELLS = 512
+    NCELLS = 256
 
     # DYNAMIC FRAME SKIPS
     MAX_SKIPS = 6
