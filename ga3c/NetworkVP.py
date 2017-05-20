@@ -87,32 +87,18 @@ class NetworkVP:
         #self.d1 = self.dense_layer(self.n2, 256, 'dense1',func=tf.nn.elu)
         
         #for cartpole tests
-        #self.d1 = self.dense_layer(self.x, 256, 'dense1',func=tf.nn.relu)
+        self.d1 = self.dense_layer(self.x, Config.NCELLS, 'dense1',func=tf.nn.relu)
 
         #for fast convergence on atari
-        self.d1 = self.jchoi_cnn(self.x)
+        #self.d1 = self.jchoi_cnn(self.x)
 
-	#LSTM Layer 
+	    #LSTM Layer 
         if Config.USE_RNN:     
             D = Config.NCELLS
-            self.lstm = rnn.LSTMCell(D, state_is_tuple=True) #or Basic
-            self.step_sizes = tf.placeholder(tf.int32, [None], name='stepsize') 
-            #self.batch_size = tf.shape(self.step_sizes)[0]    
+            
+            self.step_sizes = tf.placeholder(tf.int32, [None], name='stepsize')   
             self.batch_size = tf.placeholder(tf.int32, name='batchsize')
-            d1 = tf.reshape(self.d1, [self.batch_size,-1,D])
-
-            
-            self.c0 = tf.placeholder(tf.float32, [None, D])
-            self.h0 = tf.placeholder(tf.float32, [None, D])
-            self.initial_lstm_state = rnn.LSTMStateTuple(self.c0,self.h0)  
-            lstm_outputs, self.lstm_state = tf.nn.dynamic_rnn(self.lstm,
-                                                        d1,
-                                                        initial_state = self.initial_lstm_state,
-                                                        sequence_length = self.step_sizes,
-                                                        time_major = False) 
-                                                        #scope=scope)                                 
-            self._state = tf.reshape(lstm_outputs, [-1,D]) + self.d1 #just in case, avoid vanishing gradient
-            
+            self.cell, self.c0, self.h0, self.initial_lstm_state, self.lstm_state, self._state = self.lstm_layer(self.d1, Config.NCELLS, self.batch_size, self.step_sizes)
         else:
             self._state = self.d1
 
@@ -210,6 +196,31 @@ class NetworkVP:
 
         self.summary_op = tf.summary.merge(summaries)
         self.log_writer = tf.summary.FileWriter("logs/%s" % self.model_name, self.sess.graph)
+
+    @staticmethod
+    def make_init_rnn_state():
+        initial_lstm_state = rnn.LSTMStateTuple(np.zeros((1,Config.NCELLS),dtype=np.float32),
+                                                     np.zeros((1,Config.NCELLS),dtype=np.float32))
+
+        return initial_lstm_state
+
+    def lstm_layer(self, input, ncells, batchsize, stepsizes, residual=False):
+
+        cell = rnn.LSTMCell(ncells, state_is_tuple=True) #or Basic
+        c0 = tf.placeholder(tf.float32, [None, ncells])
+        h0 = tf.placeholder(tf.float32, [None, ncells])
+        init_state = rnn.LSTMStateTuple(c0,h0)  
+
+        input_ = tf.reshape(input, [batchsize,-1,ncells])
+        outputs, cur_state = tf.nn.dynamic_rnn(cell,input_,
+                                                    initial_state = init_state,
+                                                    sequence_length = stepsizes,
+                                                    time_major = False) 
+        _out = tf.reshape(outputs, [-1,ncells]) 
+        if residual:
+            _out += input
+        return cell, c0, h0, init_state, cur_state, _out
+        
 
     def dense_layer(self, input, out_dim, name, func=tf.nn.relu):
         #flatten

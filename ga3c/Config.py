@@ -34,6 +34,13 @@ gym.envs.register(
     kwargs={'game':'pong', 'obs_type':  'image', 'frameskip':4, 'repeat_action_probability': 0.25},
     nondeterministic=False
 )
+gym.envs.register(
+    id='CartPole-v100',
+    entry_point='gym.envs.classic_control:CartPoleEnv',
+    tags={'wrapper_config.TimeLimit.max_episode_steps': 20000},
+    reward_threshold=20000.0,
+    #kwargs={'frameskip': 4}
+)
 
 class Config:
 
@@ -41,7 +48,7 @@ class Config:
     # Game configuration
 
     # Name of the game, with version (e.g. PongDeterministic-v0)
-    ATARI_GAME = 'PongDeterministic-v100'
+    ATARI_GAME = 'CartPole-v100'
 
     # Enable to see the trained agent in action
     PLAY_MODE = False
@@ -64,7 +71,7 @@ class Config:
     TRAINERS = 2
 
     # Device
-    DEVICE = 'gpu:0'
+    DEVICE = 'cpu:0'
 
     # Enable the dynamic adjustment (+ waiting time to start it)
     DYNAMIC_SETTINGS = True
@@ -90,8 +97,8 @@ class Config:
 
     # Input of the DNN
     STACKED_FRAMES = 1
-    IMAGE_WIDTH = 84
-    IMAGE_HEIGHT = 84
+    IMAGE_WIDTH = 1
+    IMAGE_HEIGHT = 4
 
     # Total number of episodes and annealing frequency
     EPISODES = 4000
@@ -123,7 +130,7 @@ class Config:
     
     # USE RNN - can help to converge but current version is much slower than FF
     USE_RNN = True
-    NCELLS = 256
+    NCELLS = 64
     #########################################################################
     # Log and save
 

@@ -34,6 +34,8 @@ from Config import Config
 from Environment import Environment
 from Experience import Experience
 
+from NetworkVP import NetworkVP
+from copy import deepcopy as copy
 
 class ProcessAgent(Process):
     def __init__(self, id, prediction_q, training_q, episode_log_q):
@@ -90,29 +92,20 @@ class ProcessAgent(Process):
 
         time_count = 0
         reward_sum = 0.0
-        
-     
-        rnn = {'c':np.zeros((1,Config.NCELLS),dtype=np.float32),
-               'h':np.zeros((1,Config.NCELLS),dtype=np.float32)
-               }
-        
-        init_rnn = {'c':np.zeros((1,Config.NCELLS),dtype=np.float32),
-                    'h':np.zeros((1,Config.NCELLS),dtype=np.float32)
-                    }
 
+        rnn = NetworkVP.make_init_rnn_state()
+        init_rnn = NetworkVP.make_init_rnn_state()
+                    
         while not done:
             # very first few frames
             if self.env.current_state is None:
                 self.env.step(0)  # 0 == NOOP
                 continue
 
-            state = (self.env.current_state,
-                 rnn['c'],
-                 rnn['h'])
+            state = (self.env.current_state, rnn.c, rnn.h)
    
-    
-            prediction, value, rnn['c'][0], rnn['h'][0] = self.predict(state)
-                                  
+            prediction, value, rnn.c[0], rnn.h[0] = self.predict(state)
+                               
             action = self.select_action(prediction)
             reward, done = self.env.step(action)
             reward_sum += reward
@@ -124,10 +117,9 @@ class ProcessAgent(Process):
 
                 updated_exps = ProcessAgent._accumulate_rewards(experiences, self.discount_factor, terminal_reward)
                 x_, r_, a_ = self.convert_data(updated_exps)
-                yield x_, r_, a_, reward_sum, init_rnn['c'], init_rnn['h']
-
-                init_rnn['c'] = rnn['c'].copy()
-                init_rnn['h'] = rnn['h'].copy()
+                yield x_, r_, a_, reward_sum, init_rnn.c, init_rnn.h
+    
+                init_rnn = copy(rnn)
                 # reset the tmax count
                 time_count = 0
                 # keep the last experience for the next batch
