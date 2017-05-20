@@ -29,8 +29,7 @@ import re
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import rnn
-from tensorflow.contrib.layers.python.layers import batch_norm as batch_norm
-
+from cell import ConvLSTMCell
 from Config import Config
 
 
@@ -92,18 +91,14 @@ class NetworkVP:
         #for fast convergence on atari
         #self.d1 = self.jchoi_cnn(self.x)
 
-	    #LSTM Layer 
-        if Config.USE_RNN:     
-            D = Config.NCELLS
-            
-            self.step_sizes = tf.placeholder(tf.int32, [None], name='stepsize')   
-            self.batch_size = tf.placeholder(tf.int32, name='batchsize')
-            self.cell, self.c0, self.h0, self.initial_lstm_state, self.lstm_state, self._state = self.lstm_layer(self.d1, Config.NCELLS, self.batch_size, self.step_sizes)
-        else:
-            self._state = self.d1
+   
+        self.step_sizes = tf.placeholder(tf.int32, [None], name='stepsize')   
+        self.batch_size = tf.placeholder(tf.int32, name='batchsize')
+        self.cell, self.c0, self.h0, self.lstm_state, self.out = self.lstm_layer(self.d1, Config.NCELLS, self.batch_size, self.step_sizes)
 
-        self.logits_v = tf.squeeze(self.dense_layer(self._state, 1, 'logits_v', func=None), axis=[1])
-        self.logits_p = self.dense_layer(self._state, self.num_actions, 'logits_p', func=None)
+
+        self.logits_v = tf.squeeze(self.dense_layer(self.out, 1, 'logits_v', func=None), axis=[1])
+        self.logits_p = self.dense_layer(self.out, self.num_actions, 'logits_p', func=None)
         if Config.USE_LOG_SOFTMAX:
             self.softmax_p = tf.nn.softmax(self.logits_p)
             self.log_softmax_p = tf.nn.log_softmax(self.logits_p)
@@ -204,8 +199,26 @@ class NetworkVP:
 
         return initial_lstm_state
 
-    def lstm_layer(self, input, ncells, batchsize, stepsizes, residual=False):
+    def conv_lstm_layer(self, inputs, filters, batchsize, stepsizes):
+        kernel = [3, 3]
+        filters = 12
+        b,h,w,c = tf.shape(input).as_list()
 
+        c0 = tf.placeholder(tf.float32, [None, h,w,c] )
+        h0 = tf.placeholder(tf.float32, [None, h,w,c] )
+        init_state = rnn.LSTMStateTuple(c0,h0)  
+        
+        input_ = tf.reshape(inputs, [batchsize,-1, h,w,c])
+
+        cell = ConvLSTMCell(shape, filters, kernel)
+        outputs, cur_state = tf.nn.dynamic_rnn(cell, input_, dtype=inputs.dtype, time_major=False)
+
+        _out = tf.reshape(outputs, [-1, h,w,c]) 
+
+        return cell, c0, h0, cur_state, _out
+
+
+    def lstm_layer(self, input, ncells, batchsize, stepsizes, residual=False):
         cell = rnn.LSTMCell(ncells, state_is_tuple=True) #or Basic
         c0 = tf.placeholder(tf.float32, [None, ncells])
         h0 = tf.placeholder(tf.float32, [None, ncells])
@@ -219,7 +232,8 @@ class NetworkVP:
         _out = tf.reshape(outputs, [-1,ncells]) 
         if residual:
             _out += input
-        return cell, c0, h0, init_state, cur_state, _out
+            _out = tf.nn.elu(_out)
+        return cell, c0, h0, cur_state, _out
         
 
     def dense_layer(self, input, out_dim, name, func=tf.nn.relu):
