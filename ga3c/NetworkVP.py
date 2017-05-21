@@ -81,12 +81,12 @@ class NetworkVP:
         self.action_index = tf.placeholder(tf.float32, [None, self.num_actions])
         
         # As implemented in A3C paper 
-        #self.n1 = self.conv2d_layer(self.x, 8, 16, 'conv11', strides=[1, 4, 4, 1])
+        self.n1 = self.conv2d_layer(self.x, 8, 16, 'conv11', strides=[1, 4, 4, 1])
         #self.n2 = self.conv2d_layer(self.n1, 4, 32, 'conv12', strides=[1, 2, 2, 1])      
         #self.d1 = self.dense_layer(self.n2, 256, 'dense1',func=tf.nn.elu)
         
         #for cartpole tests
-        self.d1 = self.dense_layer(self.x, Config.NCELLS, 'dense1',func=tf.nn.relu)
+        #self.d1 = self.dense_layer(self.x, Config.NCELLS, 'dense1',func=tf.nn.relu)
 
         #for fast convergence on atari
         #self.d1 = self.jchoi_cnn(self.x)
@@ -94,7 +94,10 @@ class NetworkVP:
    
         self.step_sizes = tf.placeholder(tf.int32, [None], name='stepsize')   
         self.batch_size = tf.placeholder(tf.int32, name='batchsize')
-        self.cell, self.c0, self.h0, self.lstm_state, self.out = self.lstm_layer(self.d1, Config.NCELLS, self.batch_size, self.step_sizes)
+
+        self.cell, self.c0, self.h0, self.lstm_state, self.out = self.conv_lstm_layer(self.n1, Config.NCELLS, self.batch_size, self.step_sizes)
+
+        #self.cell, self.c0, self.h0, self.lstm_state, self.out = self.lstm_layer(self.d1, Config.NCELLS, self.batch_size, self.step_sizes)
 
 
         self.logits_v = tf.squeeze(self.dense_layer(self.out, 1, 'logits_v', func=None), axis=[1])
@@ -192,28 +195,37 @@ class NetworkVP:
         self.summary_op = tf.summary.merge(summaries)
         self.log_writer = tf.summary.FileWriter("logs/%s" % self.model_name, self.sess.graph)
 
+
+    @staticmethod
+    def make_rnn_shape():
+        return [1,5,5,12]
+
     @staticmethod
     def make_init_rnn_state():
-        initial_lstm_state = rnn.LSTMStateTuple(np.zeros((1,Config.NCELLS),dtype=np.float32),
-                                                     np.zeros((1,Config.NCELLS),dtype=np.float32))
+        #if dense
+        shape = NetworkVP.make_rnn_shape()
+        init_state = rnn.LSTMStateTuple(np.zeros(shape,dtype=np.float32),
+                                        np.zeros(shape,dtype=np.float32))
 
-        return initial_lstm_state
+        return init_state
 
-    def conv_lstm_layer(self, inputs, filters, batchsize, stepsizes):
-        kernel = [3, 3]
-        filters = 12
-        b,h,w,c = tf.shape(input).as_list()
+    def conv_lstm_layer(self, inputs, ncells, batchsize, stepsizes, filters=12, kernel=[3,3]):
+        bt,h,w,c = inputs.get_shape().as_list()
 
-        c0 = tf.placeholder(tf.float32, [None, h,w,c] )
-        h0 = tf.placeholder(tf.float32, [None, h,w,c] )
-        init_state = rnn.LSTMStateTuple(c0,h0)  
+        c0 = tf.placeholder(tf.float32, [None, h,w,filters] )
+        h0 = tf.placeholder(tf.float32, [None, h,w,filters] )
+        init_state = rnn.LSTMStateTuple(c0,h0)   
         
-        input_ = tf.reshape(inputs, [batchsize,-1, h,w,c])
+        #transpose in time major (requested by lib?)
+        inputbt = tf.reshape(inputs, [batchsize,-1, h,w,c])
+        inputtb = tf.transpose(inputbt, (1, 0, 2, 3, 4))
 
-        cell = ConvLSTMCell(shape, filters, kernel)
-        outputs, cur_state = tf.nn.dynamic_rnn(cell, input_, dtype=inputs.dtype, time_major=False)
+        cell = ConvLSTMCell([h,w], filters, kernel)
+        outputs, cur_state = tf.nn.dynamic_rnn(cell, inputtb, dtype=inputs.dtype, time_major=True)
 
-        _out = tf.reshape(outputs, [-1, h,w,c]) 
+        #transpose back in batch major
+        outputs = tf.transpose(outputs, (1, 0, 2, 3, 4))
+        _out = tf.reshape(outputs, [-1, h, w, filters]) 
 
         return cell, c0, h0, cur_state, _out
 

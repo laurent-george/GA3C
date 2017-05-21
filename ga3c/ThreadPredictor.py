@@ -28,6 +28,7 @@ from threading import Thread
 
 import numpy as np
 
+from NetworkVP import NetworkVP
 from Config import Config
 
 
@@ -39,6 +40,9 @@ class ThreadPredictor(Thread):
         self.id = id
         self.server = server
         self.exit_flag = False
+
+        self.rnn_shape = NetworkVP.make_rnn_shape()
+        self.rnn_shape[0] = Config.PREDICTION_BATCH_SIZE
         
     def extract_q(self, q, ids, x, c, h, size=0):
         ids[size], state = q.get()
@@ -50,14 +54,8 @@ class ThreadPredictor(Thread):
         states = np.zeros(
             (Config.PREDICTION_BATCH_SIZE, Config.IMAGE_HEIGHT, Config.IMAGE_WIDTH, Config.STACKED_FRAMES),
             dtype=np.float32)
-        cs = np.zeros(
-                (Config.PREDICTION_BATCH_SIZE, Config.NCELLS),
-                dtype=np.float32
-                )
-        hs = np.zeros(
-                (Config.PREDICTION_BATCH_SIZE, Config.NCELLS),
-                dtype=np.float32
-                )
+        cs = np.zeros(self.rnn_shape,dtype=np.float32)
+        hs = np.zeros(self.rnn_shape,dtype=np.float32)
 
         while not self.exit_flag:
             self.extract_q(self.server.prediction_q,ids,states,cs,hs,0)
