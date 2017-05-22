@@ -41,6 +41,12 @@ gym.envs.register(
     reward_threshold=20000.0,
     #kwargs={'frameskip': 4}
 )
+gym.envs.register(
+    id='SpaceInvaders-v100',
+    entry_point='gym.envs.atari:AtariEnv',
+    kwargs={'game':'space_invaders', 'obs_type':  'image'},
+    nondeterministic=False
+)
 
 class Config:
 
@@ -48,7 +54,7 @@ class Config:
     # Game configuration
 
     # Name of the game, with version (e.g. PongDeterministic-v0)
-    ATARI_GAME = 'PongDeterministic-v100'
+    ATARI_GAME = 'SpaceInvaders-v100'
 
     # Enable to see the trained agent in action
     PLAY_MODE = False
@@ -64,7 +70,7 @@ class Config:
     
     # If the dynamic configuration is on, these are the initial values.
     # Number of Agents
-    AGENTS = 8
+    AGENTS = 16
     # Number of Predictors
     PREDICTORS = 2
     # Number of Trainers
@@ -85,7 +91,7 @@ class Config:
     DISCOUNT = 0.99
     
     # Tmax
-    TIME_MAX = 20
+    TIME_MAX = 5
     
     # Reward Clipping
     REWARD_MIN = -1
@@ -97,8 +103,8 @@ class Config:
 
     # Input of the DNN
     STACKED_FRAMES = 1
-    IMAGE_WIDTH = 20
-    IMAGE_HEIGHT = 20
+    IMAGE_WIDTH = 84
+    IMAGE_HEIGHT = 84
 
     # Total number of episodes and annealing frequency
     EPISODES = 4000
@@ -126,7 +132,7 @@ class Config:
     # Epsilon (regularize policy lag in GA3C)
     LOG_EPSILON = 1e-6
     # Training min batch size - increasing the batch size increases the stability of the algorithm, but make learning slower
-    TRAINING_MIN_BATCH_SIZE = 20
+    TRAINING_MIN_BATCH_SIZE = 0
     
     # USE RNN - can help to converge but current version is much slower than FF
     USE_RNN = True

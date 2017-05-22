@@ -7,7 +7,7 @@ class ConvLSTMCell(tf.contrib.rnn.RNNCell):
     Xingjian, S. H. I., et al. "Convolutional LSTM network: A machine learning approach for precipitation nowcasting." Advances in Neural Information Processing Systems. 2015.
   """
 
-  def __init__(self, shape, filters, kernel, initializer=None, forget_bias=1.0, activation=tf.tanh, normalize=True):
+  def __init__(self, shape, filters, kernel, initializer=None, forget_bias=1.0, activation=tf.tanh, normalize=False):
     self._kernel = kernel
     self._filters = filters
     self._initializer = initializer
