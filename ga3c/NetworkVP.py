@@ -81,7 +81,7 @@ class NetworkVP:
         self.action_index = tf.placeholder(tf.float32, [None, self.num_actions])
         
         # As implemented in A3C paper 
-        self.n1 = self.conv2d_layer(self.x, 8, 16, 'conv11', strides=[1, 4, 4, 1])
+        #self.n1 = self.conv2d_layer(self.x, 8, 16, 'conv11', strides=[1, 4, 4, 1])
         #self.n2 = self.conv2d_layer(self.n1, 4, 32, 'conv12', strides=[1, 2, 2, 1])      
         #self.d1 = self.dense_layer(self.n2, 256, 'dense1',func=tf.nn.elu)
         
@@ -91,14 +91,19 @@ class NetworkVP:
         #for fast convergence on atari
         #self.d1 = self.jchoi_cnn(self.x)
 
+        #for convrnn experiment
+        self.n1 = self.conv2d_layer(self.x, 3, 4, 'conv1', strides=[1, 2, 2, 1],func=tf.nn.elu)
+        self.n2 = self.conv2d_layer(self.n1, 3, 6, 'conv2', strides=[1, 2, 2, 1],func=tf.nn.elu)
+        self.n3 = self.conv2d_layer(self.n2, 3, 8, 'conv3', strides=[1, 2, 2, 1],func=tf.nn.elu)
    
         self.step_sizes = tf.placeholder(tf.int32, [None], name='stepsize')   
         self.batch_size = tf.placeholder(tf.int32, name='batchsize')
 
-        self.cell, self.c0, self.h0, self.lstm_state, self.out = self.conv_lstm_layer(self.n1, Config.NCELLS, self.batch_size, self.step_sizes)
+        self.cell, self.c0, self.h0, self.lstm_state, self.out = self.conv_lstm_layer(self.n3, Config.NCELLS, self.batch_size, self.step_sizes, 8)
 
         #self.cell, self.c0, self.h0, self.lstm_state, self.out = self.lstm_layer(self.d1, Config.NCELLS, self.batch_size, self.step_sizes)
 
+        self.out = self.conv2d_layer(self.out, 3, 8, 'conv5', strides=[1, 2, 2, 1],func=tf.nn.elu)
 
         self.logits_v = tf.squeeze(self.dense_layer(self.out, 1, 'logits_v', func=None), axis=[1])
         self.logits_p = self.dense_layer(self.out, self.num_actions, 'logits_p', func=None)
@@ -198,7 +203,7 @@ class NetworkVP:
 
     @staticmethod
     def make_rnn_shape():
-        return [1,5,5,12]
+        return [1,11,11,8]
 
     @staticmethod
     def make_init_rnn_state():
@@ -209,19 +214,20 @@ class NetworkVP:
 
         return init_state
 
-    def conv_lstm_layer(self, inputs, ncells, batchsize, stepsizes, filters=12, kernel=[3,3]):
+    def conv_lstm_layer(self, inputs, ncells, batchsize, stepsizes, filters=32, kernel=[3,3]):
         bt,h,w,c = inputs.get_shape().as_list()
+        print(bt,h,w,c)
 
         c0 = tf.placeholder(tf.float32, [None, h,w,filters] )
         h0 = tf.placeholder(tf.float32, [None, h,w,filters] )
         init_state = rnn.LSTMStateTuple(c0,h0)   
         
         #transpose in time major (requested by lib?)
-        inputbt = tf.reshape(inputs, [batchsize,-1, h,w,c])
-        inputtb = tf.transpose(inputbt, (1, 0, 2, 3, 4))
+        inputs = tf.reshape(inputs, [batchsize,-1, h,w,c])
+        inputs = tf.transpose(inputs, (1, 0, 2, 3, 4))
 
         cell = ConvLSTMCell([h,w], filters, kernel)
-        outputs, cur_state = tf.nn.dynamic_rnn(cell, inputtb, dtype=inputs.dtype, time_major=True)
+        outputs, cur_state = tf.nn.dynamic_rnn(cell, inputs, dtype=inputs.dtype, time_major=True)
 
         #transpose back in batch major
         outputs = tf.transpose(outputs, (1, 0, 2, 3, 4))
