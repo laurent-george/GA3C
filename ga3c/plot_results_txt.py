@@ -47,8 +47,17 @@ def prepare_time_axis(hour):
         
     return time
 
+
+def tmp_copy_with_title(infile,outfile):
+    with open(infile) as f1:
+        with open(outfile, "w") as f2:
+            f2.write("date, reward, steps")
+            for line in f1:
+                f2.write(line)
+
 def addplot(filename,ax,color,label):
-    scores = pd.read_csv(filename, delimiter=', ')
+    tmp_copy_with_title(filename,'tmp.txt')
+
     hour = scores['date']
     reward = scores['reward'][:MAX_EPISODES]
     time = prepare_time_axis(hour)
