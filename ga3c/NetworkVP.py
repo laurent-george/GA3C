@@ -49,7 +49,7 @@ class NetworkVP:
 
         self.graph = tf.Graph()
         with self.graph.as_default() as g:
-            with tf.device(self.device):
+            with tf.device(self.device), tf.variable_scope('net_') as self.scope:
                 self._create_graph()
 
                 self.sess = tf.Session(
@@ -131,9 +131,9 @@ class NetworkVP:
         self.cost_p_2_agg = tf.reduce_sum(self.cost_p_2 * mask, axis=0)
         self.cost_p = -(self.cost_p_1_agg + self.cost_p_2_agg)
 
-
-        weight_decay_factor = 1e-5
-        self.weight_decay = weight_decay_factor * tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
+ 
+        print(tf.trainable_variables())
+        print('================')
         
         if Config.DUAL_RMSPROP:
             self.opt_p = tf.train.RMSPropOptimizer(
@@ -148,7 +148,7 @@ class NetworkVP:
                 momentum=Config.RMSPROP_MOMENTUM,
                 epsilon=Config.RMSPROP_EPSILON)
         else:
-            self.cost_all = self.cost_p + self.cost_v + self.weight_decay
+            self.cost_all = self.cost_p + self.cost_v
             self.opt = tf.train.RMSPropOptimizer(
                 learning_rate=self.var_learning_rate,
                 decay=Config.RMSPROP_DECAY,
@@ -190,14 +190,16 @@ class NetworkVP:
         summaries.append(tf.summary.scalar("Beta", self.var_beta))
         for var in tf.trainable_variables():
             summaries.append(tf.summary.histogram("weights_%s" % var.name, var))
-
-        summaries.append(tf.summary.histogram("activation_n1", self.n1))
-        summaries.append(tf.summary.histogram("activation_n2", self.n2))
+	
+	#todo : add tf.summary.image for convolution
+        #summaries.append(tf.summary.histogram("activation_n1", self.n1))
+        #summaries.append(tf.summary.histogram("activation_n2", self.n2))
         summaries.append(tf.summary.histogram("activation_d2", self.d1))
         summaries.append(tf.summary.histogram("activation_v", self.logits_v))
         summaries.append(tf.summary.histogram("activation_p", self.softmax_p))
 
-        self.summary_op = tf.summary.merge(summaries)
+        #self.summary_op = tf.summary.merge(summaries)
+        self.summary_op = tf.summary.merge_all()
         self.log_writer = tf.summary.FileWriter("logs/%s" % self.model_name, self.sess.graph)
 
 
@@ -227,7 +229,10 @@ class NetworkVP:
         inputs = tf.transpose(inputs, (1, 0, 2, 3, 4))
 
         cell = ConvLSTMCell([h,w], filters, kernel)
-        outputs, cur_state = tf.nn.dynamic_rnn(cell, inputs, dtype=inputs.dtype, time_major=True)
+        outputs, cur_state = tf.nn.dynamic_rnn(cell, inputs, 
+                                                     initial_state=init_state, 
+                                                     dtype=inputs.dtype, 
+                                                     time_major=True)
 
         #transpose back in batch major
         outputs = tf.transpose(outputs, (1, 0, 2, 3, 4))
@@ -346,9 +351,16 @@ class NetworkVP:
             feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.step_sizes:step_sizes, self.c0:c, self.h0:h, self.batch_size:len(l), self.is_training: True})
         self.sess.run(self.train_op, feed_dict=feed_dict)
 
-    def log(self, x, y_r, a):
+    def log(self, x, y_r, a, c, h, l):
+        r = np.reshape(y_r,(y_r.shape[0],))
+
         feed_dict = self.__get_base_feed_dict()
-        feed_dict.update({self.x: x, self.y_r: y_r, self.action_index: a})
+        if Config.USE_RNN == False:        
+            feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.is_training: True})
+        else:
+            step_sizes = np.array(l)
+            feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.step_sizes:step_sizes, self.c0:c, self.h0:h, self.batch_size:len(l), self.is_training: True})
+
         step, summary = self.sess.run([self.global_step, self.summary_op], feed_dict=feed_dict)
         self.log_writer.add_summary(summary, step)
 
@@ -367,6 +379,7 @@ class NetworkVP:
         if Config.LOAD_EPISODE > 0:
             filename = self._checkpoint_filename(Config.LOAD_EPISODE)
         self.saver.restore(self.sess, filename)
+        print('loaded : ', filename)
         return self._get_episode_from_filename(filename)
        
     def get_variables_names(self):
