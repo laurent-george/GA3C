@@ -50,7 +50,7 @@ class NetworkVP:
 
         self.graph = tf.Graph()
         with self.graph.as_default() as g:
-            with tf.device(self.device):
+            with tf.device(self.device), tf.variable_scope('net_') as self.scope:
                 self._create_graph()
 
                 self.sess = tf.Session(
@@ -87,12 +87,12 @@ class NetworkVP:
         #self.d1 = self.dense_layer(self.n2, 256, 'dense1',func=tf.nn.elu)
         
         #for cartpole tests
-        #self.d1 = self.dense_layer(self.x, 256, 'dense1',func=tf.nn.relu)
+        #self.d1 = self.dense_layer(self.x, Config.NCELLS, 'dense1',func=tf.nn.relu)
 
         #for fast convergence on atari
         self.d1 = self.jchoi_cnn(self.x)
 
-	#LSTM Layer 
+	    #LSTM Layer 
         if Config.USE_RNN:     
             D = Config.NCELLS
             self.lstm = rnn.LSTMCell(D, state_is_tuple=True) #or Basic
@@ -111,7 +111,7 @@ class NetworkVP:
                                                         sequence_length = self.step_sizes,
                                                         time_major = False) 
                                                         #scope=scope)                                 
-            self._state = tf.reshape(lstm_outputs, [-1,D]) + self.d1 #just in case, avoid vanishing gradient
+            self._state = tf.reshape(lstm_outputs, [-1,D]) + self.d1  #just in case, avoid vanishing gradient
             
         else:
             self._state = self.d1
@@ -143,8 +143,9 @@ class NetworkVP:
         self.cost_p = -(self.cost_p_1_agg + self.cost_p_2_agg)
 
 
-        weight_decay_factor = 1e-5
-        self.weight_decay = weight_decay_factor * tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
+        
+        print(tf.trainable_variables())
+        print('================')
         
         if Config.DUAL_RMSPROP:
             self.opt_p = tf.train.RMSPropOptimizer(
@@ -159,7 +160,7 @@ class NetworkVP:
                 momentum=Config.RMSPROP_MOMENTUM,
                 epsilon=Config.RMSPROP_EPSILON)
         else:
-            self.cost_all = self.cost_p + self.cost_v + self.weight_decay
+            self.cost_all = self.cost_p + self.cost_v
             self.opt = tf.train.RMSPropOptimizer(
                 learning_rate=self.var_learning_rate,
                 decay=Config.RMSPROP_DECAY,
@@ -201,14 +202,16 @@ class NetworkVP:
         summaries.append(tf.summary.scalar("Beta", self.var_beta))
         for var in tf.trainable_variables():
             summaries.append(tf.summary.histogram("weights_%s" % var.name, var))
-
-        summaries.append(tf.summary.histogram("activation_n1", self.n1))
-        summaries.append(tf.summary.histogram("activation_n2", self.n2))
+	
+	#todo : add tf.summary.image for convolution
+        #summaries.append(tf.summary.histogram("activation_n1", self.n1))
+        #summaries.append(tf.summary.histogram("activation_n2", self.n2))
         summaries.append(tf.summary.histogram("activation_d2", self.d1))
         summaries.append(tf.summary.histogram("activation_v", self.logits_v))
         summaries.append(tf.summary.histogram("activation_p", self.softmax_p))
 
-        self.summary_op = tf.summary.merge(summaries)
+        #self.summary_op = tf.summary.merge(summaries)
+        self.summary_op = tf.summary.merge_all()
         self.log_writer = tf.summary.FileWriter("logs/%s" % self.model_name, self.sess.graph)
 
     def dense_layer(self, input, out_dim, name, func=tf.nn.relu):
@@ -303,9 +306,16 @@ class NetworkVP:
             feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.step_sizes:step_sizes, self.c0:c, self.h0:h, self.batch_size:len(l), self.is_training: True})
         self.sess.run(self.train_op, feed_dict=feed_dict)
 
-    def log(self, x, y_r, a):
+    def log(self, x, y_r, a, c, h, l):
+        r = np.reshape(y_r,(y_r.shape[0],))
+
         feed_dict = self.__get_base_feed_dict()
-        feed_dict.update({self.x: x, self.y_r: y_r, self.action_index: a})
+        if Config.USE_RNN == False:        
+            feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.is_training: True})
+        else:
+            step_sizes = np.array(l)
+            feed_dict.update({self.x: x, self.y_r: r, self.action_index: a, self.step_sizes:step_sizes, self.c0:c, self.h0:h, self.batch_size:len(l), self.is_training: True})
+
         step, summary = self.sess.run([self.global_step, self.summary_op], feed_dict=feed_dict)
         self.log_writer.add_summary(summary, step)
 
@@ -324,6 +334,7 @@ class NetworkVP:
         if Config.LOAD_EPISODE > 0:
             filename = self._checkpoint_filename(Config.LOAD_EPISODE)
         self.saver.restore(self.sess, filename)
+        print('loaded : ', filename)
         return self._get_episode_from_filename(filename)
        
     def get_variables_names(self):
