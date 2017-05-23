@@ -29,9 +29,12 @@ import re
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import rnn
-from cell import ConvLSTMCell
+
 from Config import Config
 
+
+from cell import ConvLSTMCell #not sure this one works
+#import BasicConvLSTMCell
 
 class NetworkVP:
     def __init__(self, device, model_name, num_actions):
@@ -228,12 +231,18 @@ class NetworkVP:
         inputs = tf.reshape(inputs, [batchsize,-1, h,w,c])
         inputs = tf.transpose(inputs, (1, 0, 2, 3, 4))
 
+        #solution1
         cell = ConvLSTMCell([h,w], filters, kernel)
         outputs, cur_state = tf.nn.dynamic_rnn(cell, inputs, 
-                                                     initial_state=init_state, 
-                                                     dtype=inputs.dtype, 
+                                                     initial_state=init_state,
+						     dtype=inputs.dtype, 
+                                                     sequence_length = stepsizes,   
                                                      time_major=True)
 
+        #with tf.variable_scope('conv_lstm', initializer = tf.random_uniform_initializer(-.01, 0.1)):
+        #    cell = BasicConvLSTMCell.BasicConvLSTMCell([h,w], kernel, filters)
+        #outputs, cur_state = cell(inputs, init_state)    
+        
         #transpose back in batch major
         outputs = tf.transpose(outputs, (1, 0, 2, 3, 4))
         _out = tf.reshape(outputs, [-1, h, w, filters]) 
