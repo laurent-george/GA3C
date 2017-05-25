@@ -87,10 +87,10 @@ class NetworkVP:
         #self.d1 = self.dense_layer(self.n2, 256, 'dense1',func=tf.nn.elu)
         
         #for cartpole tests
-        #self.d1 = self.dense_layer(self.x, Config.NCELLS, 'dense1',func=tf.nn.relu)
+        self.d1 = self.dense_layer(self.x, Config.NCELLS, 'dense1',func=tf.nn.relu)
 
         #for fast convergence on atari
-        self.d1 = self.jchoi_cnn(self.x)
+        #self.d1 = self.jchoi_cnn(self.x)
 
 	    #LSTM Layer 
         if Config.USE_RNN:     
@@ -143,10 +143,19 @@ class NetworkVP:
         self.cost_p = -(self.cost_p_1_agg + self.cost_p_2_agg)
 
 
-        
-        print(tf.trainable_variables())
-        print('================')
-        
+        #debug
+        #print(tf.trainable_variables())
+
+        if Config.INVERSE_DYNAMICS:
+            D = Config.NCELLS
+            _state = tf.reshape(self._state, [self.batch_size,-1,D]) #like 2D images 
+            tf.transpose(_state, perm=[0, 2, 1]) 
+            self.inv_dyn = self.conv1d_layer(_state, self.num_actions, 2, 'conv_inv_dyn', stride=1)
+            tf.transpose(self.inv_dyn, perm=[0, 2, 1])
+
+            self.cost_inv_dyn = tf.nn.softmax_cross_entropy_with_logits(labels=self.action_index,logits=self.inv_dyn,name='cost_inv_dyn')
+           
+       
         if Config.DUAL_RMSPROP:
             self.opt_p = tf.train.RMSPropOptimizer(
                 learning_rate=self.var_learning_rate,
@@ -230,6 +239,25 @@ class NetworkVP:
             b = tf.get_variable('b', shape=[out_dim], initializer=b_init)
 
             output = tf.matmul(input, w) + b
+            if func is not None:
+                output = func(output)
+
+        return output
+
+
+    def conv1d_layer(self, input, filter_size, out_dim, name, stride, func=tf.nn.relu):
+        in_dim = input.get_shape().as_list()[-1]
+        d = 1.0 / np.sqrt(filter_size * in_dim)
+        with tf.variable_scope(name):
+            w_init = tf.random_uniform_initializer(-d, d)
+            b_init = tf.random_uniform_initializer(-d, d)
+            w = tf.get_variable('w',
+                                shape=[filter_size, in_dim, out_dim],
+                                dtype=tf.float32,
+                                initializer=w_init)
+            b = tf.get_variable('b', shape=[out_dim], initializer=b_init)
+
+            output = tf.nn.conv1d(input, w, stride=stride, padding='SAME') + b
             if func is not None:
                 output = func(output)
 
