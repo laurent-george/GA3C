@@ -21,7 +21,9 @@ for i in range(len(tableau20)):
     r, g, b = tableau20[i]  
     tableau20[i] = (r / 255., g / 255., b / 255.)  
     
-MAX_EPISODES = 6000
+MAX_EPISODES = 100000
+
+USE_TIME = False
 
 def prepare_time_axis(hour):
     time = []
@@ -61,7 +63,11 @@ def addplot(filename,ax,color,label):
     scores = pd.read_csv('tmp.txt', delimiter=', ')
     hour = scores['date']
     reward = scores['reward'][:MAX_EPISODES]
-    time = prepare_time_axis(hour)
+
+    if USE_TIME:
+        time = prepare_time_axis(hour)
+    else:
+        time = np.arange(0, len(hour))
 
     mean_window = 100
     std_window = 200
