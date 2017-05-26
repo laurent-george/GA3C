@@ -101,7 +101,7 @@ class NetworkVP:
             self.batch_size = tf.placeholder(tf.int32, name='batchsize')
             d1 = tf.reshape(self.d1, [self.batch_size,-1,D])
 
-            
+
             self.c0 = tf.placeholder(tf.float32, [None, D])
             self.h0 = tf.placeholder(tf.float32, [None, D])
             self.initial_lstm_state = rnn.LSTMStateTuple(self.c0,self.h0)  
@@ -111,8 +111,7 @@ class NetworkVP:
                                                         sequence_length = self.step_sizes,
                                                         time_major = False) 
                                                         #scope=scope)                                 
-            self._state = tf.reshape(lstm_outputs, [-1,D]) + self.d1  #just in case, avoid vanishing gradient
-            
+            self._state = tf.reshape(lstm_outputs, [-1,D]) + self.d1  #just in case, avoid vanishing gradient    
         else:
             self._state = self.d1
 
@@ -146,15 +145,52 @@ class NetworkVP:
         #debug
         #print(tf.trainable_variables())
 
-        if Config.INVERSE_DYNAMICS:
-            D = Config.NCELLS
-            _state = tf.reshape(self._state, [self.batch_size,-1,D]) #like 2D images 
-            tf.transpose(_state, perm=[0, 2, 1]) 
-            self.inv_dyn = self.conv1d_layer(_state, self.num_actions, 2, 'conv_inv_dyn', stride=1)
-            tf.transpose(self.inv_dyn, perm=[0, 2, 1])
+        # states are t -> t+k; actions are t+1 -> t+k+1
+        def align_state_actions(inputs, action_index):
+            _state = tf.reshape(inputs, [-1,Config.TIME_MAX,D])
+            _state = tf.slice(_state, [0, 1, 0], [-1, Config.TIME_MAX-1, D]) #remove first one N, T-1, D
+            _state = tf.reshape(_state, [-1,D])
+            _actions_index = tf.slice(action_index, [0, 0, 0], [-1, Config.TIME_MAX-1, self.num_actions]) #remove last one : N, T-1, A
+            return _state, _action_index
 
-            self.cost_inv_dyn = tf.nn.softmax_cross_entropy_with_logits(labels=self.action_index,logits=self.inv_dyn,name='cost_inv_dyn')
-           
+        if Config.INVERSE_DYNAMICS:
+            #1. assuming predicting action transition from stacked state
+            #slice to realign
+            def inv_dyn(input, action_index):
+                _state = tf.reshape(input, [-1,Config.TIME_MAX,D])
+                _state = tf.slice(_state, [0, 1, 0], [-1, Config.TIME_MAX-1, D]) #remove first one N, T-1, D
+                _state = tf.reshape(_state, [-1,D])
+                _action_index = tf.reshape(action_index, [-1,Config.TIME_MAX,self.num_actions])
+                _actions_index = tf.slice(_action_index, [0, 0, 0], [-1, Config.TIME_MAX-1, self.num_actions]) #remove last one : N, T-1, A
+                _action_index = tf.reshape(_action_index, [-1,self.num_actions])
+
+                
+                _actions = self.dense_layer(_state,self.num_actions, 'logits_inv_actions') 
+                cost_aux = tf.nn.softmax_cross_entropy_with_logits(labels=_actions_index,logits=_actions,name='cost_inv_dyn')
+                return cost_aux
+
+            self.cost_aux = tf.cond(self.is_training,lambda: inv_dyn(self._state, self.action_index),lambda: tf.zeros([1]) )
+
+
+        elif Config.INV_CONV_DYN:    
+            #2. predicts accross states
+            def inv_dyn_cross(input, action_index):
+                D = Config.NCELLS
+                _state = tf.reshape(self._state, [-1,Config.TIME_MAX,D])  # N T D
+                tf.transpose(_state, perm=[0, 2, 1]) # N D T
+
+                
+                _actions = self.conv1d_layer(_state, filter_size=3, out_dim=self.num_actions, name='conv_inv_dyn', stride=1, func=None)
+                tf.transpose(_actions, perm=[0, 2, 1]) # N T 2
+                _actions = tf.reshape(_actions, [-1, self.num_actions]) # N*T 2
+
+                cost_inv_dyn = tf.nn.softmax_cross_entropy_with_logits(labels=action_index,logits=_actions,name='cost_inv_dyn')
+                return cost_inv_dyn
+
+            self.cost_aux = tf.cond(self.is_training,lambda: inv_dyn_cross(self._state, self.action_index),lambda: tf.zeros([1]) )
+        else:
+            self.cost_aux = tf.zeros([1])
+
        
         if Config.DUAL_RMSPROP:
             self.opt_p = tf.train.RMSPropOptimizer(
@@ -169,7 +205,7 @@ class NetworkVP:
                 momentum=Config.RMSPROP_MOMENTUM,
                 epsilon=Config.RMSPROP_EPSILON)
         else:
-            self.cost_all = self.cost_p + self.cost_v
+            self.cost_all = self.cost_p + self.cost_v + self.cost_aux
             self.opt = tf.train.RMSPropOptimizer(
                 learning_rate=self.var_learning_rate,
                 decay=Config.RMSPROP_DECAY,
@@ -223,6 +259,7 @@ class NetworkVP:
         self.summary_op = tf.summary.merge_all()
         self.log_writer = tf.summary.FileWriter("logs/%s" % self.model_name, self.sess.graph)
 
+   
     def dense_layer(self, input, out_dim, name, func=tf.nn.relu):
         #flatten
         if len(input.get_shape().as_list()) > 2:
