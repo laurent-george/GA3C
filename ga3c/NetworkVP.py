@@ -117,24 +117,15 @@ class NetworkVP:
 
         self.logits_v = tf.squeeze(self.dense_layer(self._state, 1, 'logits_v', func=None), axis=[1])
         self.logits_p = self.dense_layer(self._state, self.num_actions, 'logits_p', func=None)
-        if Config.USE_LOG_SOFTMAX:
-            self.softmax_p = tf.nn.softmax(self.logits_p)
-            self.log_softmax_p = tf.nn.log_softmax(self.logits_p)
-            self.log_selected_action_prob = tf.reduce_sum(self.log_softmax_p * self.action_index, axis=1)
+ 
+        self.softmax_p = tf.nn.softmax(self.logits_p)
+        self.log_softmax_p = tf.nn.log_softmax(self.logits_p)
+        self.log_selected_action_prob = tf.reduce_sum(self.log_softmax_p * self.action_index, axis=1)
 
-            self.cost_p_1 = self.log_selected_action_prob * (self.y_r - tf.stop_gradient(self.logits_v))
-            self.cost_p_2 = -1 * self.var_beta * \
-                        tf.reduce_sum(self.log_softmax_p * self.softmax_p, axis=1)
-        else:
-            self.softmax_p = (tf.nn.softmax(self.logits_p) + Config.MIN_POLICY) / (1.0 + Config.MIN_POLICY * self.num_actions)
-            self.selected_action_prob = tf.reduce_sum(self.softmax_p * self.action_index, axis=1)
-
-            self.cost_p_1 = tf.log(tf.maximum(self.selected_action_prob, self.log_epsilon)) \
-                        * (self.y_r - tf.stop_gradient(self.logits_v))
-            self.cost_p_2 = -1 * self.var_beta * \
-                        tf.reduce_sum(tf.log(tf.maximum(self.softmax_p, self.log_epsilon)) *
-                                      self.softmax_p, axis=1)
-        
+        self.cost_p_1 = self.log_selected_action_prob * (self.y_r - tf.stop_gradient(self.logits_v))
+        self.cost_p_2 = -1 * self.var_beta * \
+                    tf.reduce_sum(self.log_softmax_p * self.softmax_p, axis=1)
+    
         mask = tf.reduce_max(self.action_index,axis=1)
         self.cost_v = 0.5 * tf.reduce_sum(tf.square(self.y_r - self.logits_v) * mask, axis=0)
         self.cost_p_1_agg = tf.reduce_sum(self.cost_p_1 * mask, axis=0)
@@ -142,105 +133,64 @@ class NetworkVP:
         self.cost_p = -(self.cost_p_1_agg + self.cost_p_2_agg)
 
 
-        #debug
-        #print(tf.trainable_variables())
-
-        # states are t -> t+k; actions are t+1 -> t+k+1
-        def align_state_actions(inputs, action_index):
+        '''
+        #1. assuming predicting action transition from stacked state
+        def inv_dyn(inputs, action_index):
             _state = tf.reshape(inputs, [-1,Config.TIME_MAX,D])
             _state = tf.slice(_state, [0, 1, 0], [-1, Config.TIME_MAX-1, D]) #remove first one N, T-1, D
             _state = tf.reshape(_state, [-1,D])
 
             _action_index = tf.reshape(action_index, [-1,Config.TIME_MAX,self.num_actions])
-            _action_index = tf.slice(_action_index, [0, 0, 0], [-1, Config.TIME_MAX-1, self.num_actions]) #remove last one : N, T-1, A
-            return _state, _action_index
+            _action_index = tf.slice(_action_index, [0, 0, 0], [-1, Config.TIME_MAX-1, self.num_actions])
 
-        if Config.INVERSE_DYNAMICS:
-            #1. assuming predicting action transition from stacked state
-            #slice to realign
-            def inv_dyn(input, action_index):
-                _state, _action_index = align_state_actions(input,action_index)
-                _state = tf.reshape(_state, [-1,D])
-                _action_index = tf.reshape(_action_index, [-1,self.num_actions])
+            _state = tf.reshape(_state, [-1,D])
+            _action_index = tf.reshape(_action_index, [-1,self.num_actions])
 
 
-                _actions = self.dense_layer(_state,self.num_actions, 'logits_inv_actions') 
-                cost_aux = tf.nn.softmax_cross_entropy_with_logits(labels=_action_index,logits=_actions,name='cost_inv_dyn')
-                return cost_aux
+            _actions = self.dense_layer(_state,self.num_actions, 'logits_inv_actions') 
+            cost_aux = tf.nn.softmax_cross_entropy_with_logits(labels=_action_index,logits=_actions,name='cost_inv_dyn')
+            return cost_aux
 
-            self.cost_aux = tf.cond(self.is_training,lambda: inv_dyn(self._state, self.action_index),lambda: tf.zeros([1]) )
-
-
-        elif Config.INV_CONV_DYN:    
-            #2. predicts accross states
-            def inv_dyn_cross(inputs, action_index):
-                #_state, _action_index = align_state_actions(input,action_index)
-                D = Config.NCELLS
-                _state = tf.reshape(inputs, [-1,Config.TIME_MAX,D])
-                tf.transpose(_state, perm=[0, 2, 1]) # N D T
+        self.cost_aux = tf.cond(self.is_training,lambda: inv_dyn(self._state, self.action_index),lambda: tf.zeros([1]) )
+        '''
 
 
-                #remove last row of action_index
-                _action_index = tf.reshape(action_index, [-1,Config.TIME_MAX,self.num_actions])
-                _action_index = tf.slice(_action_index, [0, 0, 0], [-1, Config.TIME_MAX-2, self.num_actions]) #remove last one : N, T-1, A
-                    
-                _actions = self.conv1d_layer(_state, filter_size=3, out_dim=self.num_actions, name='conv_inv_dyn', stride=1, func=None)
+        #2. predicts accross states
+        '''
+        def inv_dyn_cross(inputs, action_index):
+            #_state, _action_index = align_state_actions(input,action_index)
+            D = Config.NCELLS
+            _state = tf.reshape(inputs, [-1,Config.TIME_MAX,D])
+            tf.transpose(_state, perm=[0, 2, 1]) # N D T
+
+
+            #remove last row of action_index
+            _action_index = tf.reshape(action_index, [-1,Config.TIME_MAX,self.num_actions])
+            _action_index = tf.slice(_action_index, [0, 0, 0], [-1, Config.TIME_MAX-2, self.num_actions]) #remove last one : N, T-1, A
                 
-                tf.transpose(_actions, perm=[0, 2, 1]) # N T 2
-                _actions = tf.reshape(_actions, [-1, self.num_actions]) # N*T 2
+            _actions = self.conv1d_layer(_state, filter_size=3, out_dim=self.num_actions, name='conv_inv_dyn', stride=1, func=None)
+            
+            tf.transpose(_actions, perm=[0, 2, 1]) # N T 2
+            _actions = tf.reshape(_actions, [-1, self.num_actions]) # N*T 2
 
-                cost_inv_dyn = tf.nn.softmax_cross_entropy_with_logits(labels=_action_index,logits=_actions,name='cost_inv_dyn')
-                return cost_inv_dyn
+            cost_inv_dyn = tf.nn.softmax_cross_entropy_with_logits(labels=_action_index,logits=_actions,name='cost_inv_dyn')
+            return cost_inv_dyn
 
-            self.cost_aux = tf.cond(self.is_training,lambda: inv_dyn_cross(self._state, self.action_index),lambda: tf.zeros([1]) )
-        else:
-            self.cost_aux = tf.zeros([1])
+        self.cost_aux = tf.cond(self.is_training,lambda: inv_dyn_cross(self._state, self.action_index),lambda: tf.zeros([1]) )
+        '''
 
        
-        if Config.DUAL_RMSPROP:
-            self.opt_p = tf.train.RMSPropOptimizer(
-                learning_rate=self.var_learning_rate,
-                decay=Config.RMSPROP_DECAY,
-                momentum=Config.RMSPROP_MOMENTUM,
-                epsilon=Config.RMSPROP_EPSILON)
+        self.cost_all = self.cost_p + self.cost_v 
+        self.opt = tf.train.AdamOptimizer(learning_rate=self.var_learning_rate)
+        self.opt = tf.train.RMSPropOptimizer(learning_rate=self.var_learning_rate,
+                                            decay=Config.RMSPROP_DECAY,
+                                            momentum=Config.RMSPROP_MOMENTUM,
+                                            epsilon=Config.RMSPROP_EPSILON)
 
-            self.opt_v = tf.train.RMSPropOptimizer(
-                learning_rate=self.var_learning_rate,
-                decay=Config.RMSPROP_DECAY,
-                momentum=Config.RMSPROP_MOMENTUM,
-                epsilon=Config.RMSPROP_EPSILON)
-        else:
-            self.cost_all = self.cost_p + self.cost_v + self.cost_aux * 0.5
-            self.opt = tf.train.RMSPropOptimizer(
-                learning_rate=self.var_learning_rate,
-                decay=Config.RMSPROP_DECAY,
-                momentum=Config.RMSPROP_MOMENTUM,
-                epsilon=Config.RMSPROP_EPSILON)
-
-        if Config.USE_GRAD_CLIP:
-            if Config.DUAL_RMSPROP:
-                self.opt_grad_v = self.opt_v.compute_gradients(self.cost_v)
-                self.opt_grad_v_clipped = [(tf.clip_by_norm(g, Config.GRAD_CLIP_NORM),v) 
-                                            for g,v in self.opt_grad_v if not g is None]
-                self.train_op_v = self.opt_v.apply_gradients(self.opt_grad_v_clipped)
-            
-                self.opt_grad_p = self.opt_p.compute_gradients(self.cost_p)
-                self.opt_grad_p_clipped = [(tf.clip_by_norm(g, Config.GRAD_CLIP_NORM),v)
-                                            for g,v in self.opt_grad_p if not g is None]
-                self.train_op_p = self.opt_p.apply_gradients(self.opt_grad_p_clipped)
-                self.train_op = [self.train_op_p, self.train_op_v]
-            else:
-                self.opt_grad = self.opt.compute_gradients(self.cost_all)
-                self.opt_grad_clipped = [(tf.clip_by_average_norm(g, Config.GRAD_CLIP_NORM),v) for g,v in self.opt_grad]
-                self.train_op = self.opt.apply_gradients(self.opt_grad_clipped)
-        else:
-            if Config.DUAL_RMSPROP:
-                self.train_op_v = self.opt_p.minimize(self.cost_v, global_step=self.global_step)
-                self.train_op_p = self.opt_v.minimize(self.cost_p, global_step=self.global_step)
-                self.train_op = [self.train_op_p, self.train_op_v]
-            else:
-                self.train_op = self.opt.minimize(self.cost_all, global_step=self.global_step)
-
+        self.opt_grad = self.opt.compute_gradients(self.cost_all)
+        self.opt_grad_clipped = [(tf.clip_by_average_norm(g, Config.GRAD_CLIP_NORM),v) for g,v in self.opt_grad]
+        self.train_op = self.opt.apply_gradients(self.opt_grad_clipped)
+      
 
     def _create_tensor_board(self):
         summaries = tf.get_collection(tf.GraphKeys.SUMMARIES)
