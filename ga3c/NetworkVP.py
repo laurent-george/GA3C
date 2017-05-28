@@ -135,7 +135,12 @@ class NetworkVP:
 
 
         self.cost_all = self.cost_p + self.cost_v
-        self.opt = tf.train.AdamOptimizer(learning_rate=self.var_learning_rate)
+
+        #self.opt = tf.train.AdamOptimizer(learning_rate=self.var_learning_rate)
+        self.opt = tf.train.RMSPropOptimizer(learning_rate=self.var_learning_rate,
+                                            decay=Config.RMSPROP_DECAY,
+                                            momentum=Config.RMSPROP_MOMENTUM,
+                                            epsilon=Config.RMSPROP_EPSILON)
 
         self.opt_grad = self.opt.compute_gradients(self.cost_all)
         self.opt_grad_clipped = [(tf.clip_by_average_norm(g, Config.GRAD_CLIP_NORM),v) for g,v in self.opt_grad]

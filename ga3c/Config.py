@@ -105,6 +105,11 @@ class Config:
     LEARNING_RATE_START = 0.001
     LEARNING_RATE_END = 0.001
 
+    # RMSProp parameters
+    RMSPROP_DECAY = 0.99
+    RMSPROP_MOMENTUM = 0.0
+    RMSPROP_EPSILON = 0.1
+
     #GRAD CLIP
     GRAD_CLIP_NORM = 40.0 
     # Epsilon (regularize policy lag in GA3C)
